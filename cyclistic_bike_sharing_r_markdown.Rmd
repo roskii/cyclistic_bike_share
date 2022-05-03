@@ -1,0 +1,253 @@
+---
+title: "Cyclistic Bike Sharing"
+author: "Steven Roberts"
+date: '2022-05-03'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Google Data Analytics Capstone Project 
+
+<br>
+![](https://grow.google/root/static/images/logo_GwG.svg){width=250px}
+
+### Case Study 1
+
+![](https://miro.medium.com/max/293/1*nPqUTH1pkj8BWtQrd8WYIg.png){width=125px}
+
+As part of Google's Data Analytics Professional Certification, an optional capstone project can be completed by round off the course. Google provided two recommended case studies, each based off of open-sourced data sets. 
+
+I selected first case study option - a bike-sharing service provided in the city of Chicago. Data is licensed by "Bikeshare", an LCC operated by Lyft Bikes and Scooters, under City of Chicago's ("City") Divvy bicycle sharing service. For the purposes of this case study, a fictional company title of 'Cyclistic' was used.
+
+While this R Markdown file comprises of the key code chunks for the case study analysis, the original R file will provide the most clear and extensive view of the entire code base.
+
+### Setting up my enviroment
+Notes:    setting up my R environment by loading multiple packages:
+
+```{r enabling libraries, error=FALSE, warning=FALSE, message=FALSE}
+library("ggplot2")
+library("plyr")
+library("dplyr")
+library("readr")
+library("tidyr")
+library("data.table")
+library("stringr") 
+library("lubridate")
+library("viridis")
+library("scales")
+```
+
+### Loading the raw (unclean) data set
+Notes:    Consolidated 12 .csv files (close to 1gb), into a single file. This file is shown in here just for display purposes and is not loaded.
+
+```{r loading raw data, results="hide"}
+data_unclean <- list.files(path = "C://Users/Public/r_studio/google_capstone/source_data/02_05_2022_data_bar_all.csv", 
+                       pattern = "*.csv", full.names = TRUE) %>% 
+  lapply(read_csv) %>%                              
+  bind_rows
+```
+
+### Data cleaning
+Notes:    checking data types, formats, and looking for errors such as duplication
+
+```{r checking data, eval=FALSE}
+glimpse(data_unclean) # check colnames, typeof
+
+dim(data_unclean[duplicated(data_all$ride_id),])[1] # check if any duplicate ride_id (as they should be unique)
+
+unique(data_unclean$rideable_type) # confirming unique values ("electric_bike" "classic_bike"  "docked_bike")
+unique(data_unclean$member_casual) # confirming unique values ("member" "casual")
+
+mutate(data_unclean, 
+       end_station_id = as.character(end_station_id), 
+       start_station_id = as.character(start_station_id)) # ensure all station_id's are characters
+```
+
+Notes:    checking data types, formats, and looking for errors such as duplication
+
+```{r removing data, eval=FALSE}
+data_clean <- data_unclean %>% 
+  drop_na(start_lat) %>%
+  data_all[!duplicated(data_all$ride_id), ] %>%
+  filter(!(ride_length < 0)) # remove NA from end_lat
+
+data_clean <- data_clean %>% # remove trips with a ride length of less than 0
+  filter(!(ride_length < 0))
+```
+
+Notes:    create columns with data needed to produce the various visualizations
+
+```{r transforming data, eval=FALSE}
+data_clean$date <-as.Date(data_clean$started_at)
+data_clean$year <- format(as.Date(data_clean$date), "%Y") # create column for year
+data_clean$month <- format(as.Date(data_clean$date), "%m") # create column for month
+data_clean$week <- format(as.Date(data_clean$date), "%W") # create column for week
+data_clean$day_of_week <- format(as.Date(data_clean$date), "%A") # create column for day of week
+data_clean$yyyy_mm_dd <- format(as.Date(data_clean$date), "%Y-%m-%d") # create column for date
+
+data_clean$day_of_week <- as.factor(data_clean$day_of_week) # convert to factor
+data_clean$day_of_week <- ordered(data_clean$day_of_week, 
+                                  levels = c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")) # set order for days of week
+
+data_clean$ride_length_seconds <- difftime(data_clean$ended_at, data_clean$started_at) # create column for ride length calculated in seconds
+
+data_clean$started_at_time <- format(as.POSIXct(
+  data_clean$started_at), format = "%H:%M:%S") # create column with ride start times
+
+data_clean$ended_at_time <- format(as.POSIXct(
+  data_clean$ended_at), format = "%H:%M:%S") # create column with ride end times
+
+data_clean$ride_length_seconds <- as.numeric(str_extract(data_clean$ride_length_seconds, "[0-9]+")) # remove 'secs' from ride_length_seconds
+
+data_clean$ride_length_minutes <- (data_clean$ride_length / 60) # create column with ride length in minutes
+```
+
+### Loading the cleaned data sets
+
+Notes:    These data sets have been cleaned and manipulated, and are ready to be visualized by ggplot
+
+```{r loading data sets, results="hide"}
+data_heat_mem_only <- read.csv("C://Users/Public/r_studio/google_capstone/02_05_2022_data_heat_mem_only.csv")
+data_heat_cas_only <- read.csv("C://Users/Public/r_studio/google_capstone/02_05_2022_data_heat_cas_only.csv")
+data_bar_all <- read.csv("C://Users/Public/r_studio/google_capstone/02_05_2022_data_bar_all.csv")
+data_scatter_all <- read.csv("C://Users/Public/r_studio/google_capstone/02_05_2022_data_scatter_all.csv")
+```
+
+### Data visualizations - Heat maps
+
+Comparing the difference in total member and casual riders trips per day over the year
+
+```{r heat map viz pre-load, echo=FALSE, eval=FALSE}
+data_heat_all <- data_clean %>%
+  select(yyyy_mm_dd, day_of_week, week, member_casual) %>%
+  group_by(yyyy_mm_dd, member_casual) %>%
+  mutate(num_trips=n()) %>%
+  distinct(yyyy_mm_dd, member_casual,.keep_all=TRUE) # group table by number of trips by day of the year
+
+data_heat_mem_only <- data_heat_all %>%
+  filter(member_casual == "member") # filter table with only member riders
+
+data_heat_cas_only <- data_heat_all %>%
+  filter(member_casual == "casual") # filter table with only casual riders
+```
+
+```{r heat map viz actual, echo=FALSE}
+viz_2_heat_mem <- ggplot(data_heat_mem_only, aes(as.numeric(week),day_of_week, fill=num_trips))+
+  geom_tile(color="white", na.rm=FALSE)+
+  scale_y_discrete(limits = rev)+
+  scale_x_continuous(expand = c(0,0), breaks = seq(1, 52, length=12), labels = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))+
+  theme(axis.title.x = element_blank(), axis.title.y = element_blank())+
+  labs(title="Total Member Riders Trips per Day")+
+  scale_fill_viridis(option="mako", direction=-1,name="Number of Trips") # create heat map viz for member riders
+
+viz_2_heat_cas <- ggplot(data_heat_cas_only, aes(as.numeric(week),day_of_week, fill=num_trips))+
+  geom_tile(color="white", na.rm=FALSE)+
+  scale_y_discrete(limits = rev)+
+  scale_x_continuous(expand = c(0,0), breaks = seq(1, 52, length=12), labels = c("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"))+
+  theme(axis.title.x = element_blank(), axis.title.y = element_blank())+
+  labs(title="Total Casual Riders Trips per Day")+
+  scale_fill_viridis(option="mako", direction=-1,name="Number of Trips") # create heat map viz for casual riders
+
+print(viz_2_heat_mem)
+
+print(viz_2_heat_cas)
+
+```
+
+```{r heat map viz ggarrange, echo=FALSE, eval=FALSE}
+viz_2_heat_mem_cas <- ggarrange(viz_2_heat_mem, 
+                                viz_2_heat_cas, 
+                                ncol = 1, nrow = 2, common.legend = TRUE, legend = "right") # group both heat maps into one grid
+```
+
+### Data visualization - Bar chart
+
+Comparing the average number of daily rides starting at each of hour the day
+
+```{r bar chart pre-load, echo=FALSE, eval=FALSE}
+data_bar_all <- data_clean %>%
+  select(ride_id, member_casual, started_at, yyyy_mm_dd, day_of_week) %>%
+  mutate(hours_start=hour(data_clean$started_at)) # group table by riders start and end times by hour of the day
+
+data_bar_group <- data_bar_all %>%
+  distinct(ride_id, hours_start, member_casual) %>%
+  group_by(member_casual, hours_start) %>%
+  summarise("num_rides_in_hour" = n())
+
+
+```
+
+```{r bar chart actual, echo=FALSE}
+hr <- c(0:24) # set 24 hr scale on x axis
+
+viz_3_bar <- ggplot(data_bar_all, aes(hours_start, fill=member_casual))+
+  geom_bar(position="dodge")+
+  scale_y_continuous(labels=function(x) format(x / 365, digits=3))+
+  scale_x_continuous(name="Hour of Day", labels=as.character(hr), breaks=hr)+
+  theme(axis.title.x = element_blank(), axis.title.y = element_blank())+
+  labs(title="Total Average Number of Daily Rides Started During Each Hour of the Day")+
+  scale_fill_viridis_d(option="mako", direction=-1, begin=0.2, end=0.8, name="Customer Type") # create bar chart viz 
+
+print(viz_3_bar)
+
+```
+
+### Data visualization - Scatter plot
+
+Analyzing the daily ride length over a weekly period for each month
+
+```{r scatter plot pre-load, echo=FALSE, eval=FALSE}
+data_scatter_all <- data_clean %>%
+  group_by(month, day_of_week, member_casual) %>%
+  summarise(ave_ride_length_minutes = mean(ride_length_minutes, na.rm = TRUE)) # group table by average ride length in minutes for each day of the week
+```
+
+```{r scatter plot actual, echo=FALSE}
+rename_months <- as_labeller(c(`01` = "January", `02` = "February", `03` = "March", `04` = "April", 
+                               `05` = "May", `06` = "June", `07` = "July", `08` = "August", 
+                               `09` = "September", `10` = "October", `11` = "November", `12` = "December")) # rename individual chart titles to correct months
+
+viz_4_scatter <- ggplot(data_scatter_all, aes(day_of_week, ave_ride_length_minutes, color=member_casual))+
+  geom_point(size=2)+
+  facet_wrap(~month, labeller = rename_months)+
+  theme(axis.text.x=element_text(angle=45),axis.title.x = element_blank(), axis.title.y = element_blank())+
+  scale_x_discrete(labels=c("Sunday"="Sun","Monday"="Mon","Tuesday"="Tues","Wednesday"="Wed","Thursday"="Thurs","Friday"="Fri","Saturday"="Sat"))+
+  labs(title="Average Daily Ride Length")+
+  scale_color_viridis_d(option="mako", direction=-1,begin=0.3, end=0.8, name="Customer Type") # create scatter plot viz
+  
+print(viz_4_scatter)
+
+```
+
+### Saving data
+
+Saving each of the data sets so they can be accessed for further analysis and visualization in Excel and Tableau
+
+```{r saving data, eval=FALSE}
+## 5.1) Entire clean dataset
+
+fwrite(data_clean,"C://Users/Public/r_studio/google_capstone/02_05_2022_data_clean.csv", col.names = TRUE, row.names = FALSE)
+
+## 5.2) Map data (for Excel analysis & Tableau viz)
+
+fwrite(data_map_all,"C://Users/Public/r_studio/google_capstone/02_05_2022_data_map_all.csv", col.names = TRUE, row.names = FALSE)
+
+## 5.3) Heat map data (for Excel analysis)
+
+fwrite(data_heat_all,"C://Users/Public/r_studio/google_capstone/02_05_2022_data_heat_all.csv", col.names = TRUE, row.names = FALSE)
+
+fwrite(data_heat_mem_only,"C://Users/Public/r_studio/google_capstone/data_heat_mem_only.csv", col.names = TRUE, row.names = FALSE)
+
+fwrite(data_heat_cas_only,"C://Users/Public/r_studio/google_capstone/data_heat_cas_only.csv", col.names = TRUE, row.names = FALSE)
+
+## 5.4) Bar chart data (for Excel analysis)
+
+fwrite(data_bar_all,"C://Users/Public/r_studio/google_capstone/02_05_2022_data_bar_all.csv", col.names = TRUE, row.names = FALSE)
+
+## 5.5) Scatter plot data (for Excel analysis)
+
+fwrite(data_scatter_all,"C://Users/Public/r_studio/google_capstone/02_05_2022_data_scatter_all.csv", col.names = TRUE, row.names = FALSE)
+```
